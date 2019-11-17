@@ -21,35 +21,49 @@ impl Drop for Canary {
 }
 
 struct BirdCage {
-    c: Atomic<Canary>,
+    c: Vec<Atomic<Canary>>,
 }
 
-fn cleanup(n: usize) {
-    println!("[{}] doing deferred cleanup", n);
+impl BirdCage {
+    fn new(size: usize) -> BirdCage {
+        let mut bc = BirdCage {
+            c: Vec::with_capacity(size),
+        };
+        for ii in 0..size {
+            let name = format!("Canary {}", ii);
+            bc.c.push(Atomic::new(Canary::new(&name)));
+        }
+        bc
+    }
+
+    fn access(&self, n: usize, ctx: &str) {
+        let guard = &pin();
+        let shared = self.c[n].load(Ordering::SeqCst, guard);
+        let c: &Canary = unsafe{shared.as_ref()}.unwrap();
+        println!("[{}] accessing {}", ctx, c.name);
+        let defer_ctx = ctx.to_owned();
+        guard.defer(move || {
+            cleanup(defer_ctx);
+        });
+
+        // Uncomment this to see the deferred function run sooner.
+        // Otherwise, the default Collector will wait until a bunch of
+        // deferred actions have accumulated (~256 in crossbeam 0.7.3).
+
+        //guard.flush();
+    }
 }
 
-fn access(birdcage: &BirdCage, n: usize) {
-    let guard = &pin();
-    let shared = birdcage.c.load(Ordering::SeqCst, guard);
-    let c: &Canary = unsafe{shared.as_ref()}.unwrap();
-    println!("[{}] accessing {}", n, c.name);
-    guard.defer(move || {
-        cleanup(n);
-    });
-
-    // Uncomment this to see the deferred function run sooner.
-    // Otherwise, the default Collector will wait until a bunch of
-    // deferred actions have accumulated (~256 in crossbeam 0.7.3).
-
-    //guard.flush();
+fn cleanup(ctx: String) {
+    println!("[{}] doing deferred cleanup", ctx);
 }
+
 
 fn main() {
-    let birdcage = BirdCage {
-        c: Atomic::new(Canary::new("first")),
-    };
+    let bc_size = 10;
+    let birdcage = BirdCage::new(bc_size);
     // Increase this number to see the deferred functions run.
-    for n in 0..10 {
-        access(&birdcage, n);
+    for n in 0..bc_size {
+        birdcage.access(n, "main");
     }
 }
