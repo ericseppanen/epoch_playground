@@ -59,10 +59,11 @@ impl BirdCage {
         let c: &Canary = unsafe{stolen_c.as_ref()}.unwrap();
         println!("[{}] removed {}", ctx, c.name);
 
-        let defer_ctx = ctx.to_owned();
-        guard.defer(move || {
-            cleanup(defer_ctx);
-        });
+        // Now schedule the stolen canary for deallocation.
+        // This is equivalent to defer() with a closure that drops the value.
+        unsafe {
+            guard.defer_destroy(stolen_c);
+        }
 
         // Uncomment this to see the deferred function run sooner.
         // Otherwise, the default Collector will wait until a bunch of
@@ -74,15 +75,12 @@ impl BirdCage {
 
 }
 
-fn cleanup(ctx: String) {
-    println!("[{}] doing deferred cleanup", ctx);
-}
 
 
 fn main() {
+    // Increase this number to see how much deferred work gets buffered.
     let bc_size = 10;
     let birdcage = BirdCage::new(bc_size);
-    // Increase this number to see the deferred functions run.
     for n in 0..bc_size {
         birdcage.access(n, "main");
     }
@@ -90,4 +88,13 @@ fn main() {
         let c = Canary::new(&format!("Cuckoo {}", n));
         birdcage.replace(n, "main", c);
     }
+
+    // This seems pretty hacky.  To force any deferred work to run, we need the epoch
+    // to move forward two times.  The magic number two is due to the inner workings
+    // of the global epoch counter.
+    // I wish there was a way to say "destroy all the remaining garbage from _this_
+    // data structure," but the epoch counter, Collector, and deferred work are
+    // global, not per data structure.
+    pin().flush();
+    pin().flush();
 }
