@@ -1,5 +1,8 @@
 use crossbeam::epoch::{pin, Atomic, Owned};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::thread;
+use rand::Rng;
 
 #[derive(Debug)]
 struct Canary {
@@ -71,22 +74,49 @@ impl BirdCage {
 
         //guard.flush();
     }
-
-
 }
 
+// Increase these numbers to see how threads interact, and how much
+// deferred work will be buffered before items start getting dropped.
+const ITERATIONS: usize = 100;
+const BIRDCAGE_SIZE: usize = 10;
+const NUM_THREADS: usize = 10;
+
+fn worker(birdcage: &BirdCage, id: usize) {
+    let bc_size = birdcage.c.len();
+    let my_name = format!("thread {}", id);
+    let mut rng = rand::thread_rng();
+
+    for n in 0..ITERATIONS {
+        // read-only access of a random element
+        let pick1 = rng.gen_range(0, bc_size);
+        birdcage.access(pick1, &my_name);
+
+        // replace a random element with a new one.
+        let c = Canary::new(&format!("{} Cuckoo {}", my_name, n));
+        let pick2 = rng.gen_range(0, bc_size);
+        birdcage.replace(pick2, &my_name, c);
+    }
+    println!("{} exiting", my_name);
+}
 
 
 fn main() {
     // Increase this number to see how much deferred work gets buffered.
-    let bc_size = 10;
-    let birdcage = BirdCage::new(bc_size);
-    for n in 0..bc_size {
-        birdcage.access(n, "main");
+    let birdcage = Arc::new(BirdCage::new(BIRDCAGE_SIZE));
+    let mut thread_handles = Vec::new();
+
+    for thread_id in 0..NUM_THREADS {
+        let local_id = thread_id;
+        let local_birdcage = birdcage.clone();
+        let handle = thread::spawn(move ||
+            worker(local_birdcage.as_ref(), local_id)
+        );
+        thread_handles.push(handle);
     }
-    for n in 0..bc_size {
-        let c = Canary::new(&format!("Cuckoo {}", n));
-        birdcage.replace(n, "main", c);
+
+    for handle in thread_handles {
+        handle.join().unwrap();
     }
 
     // This seems pretty hacky.  To force any deferred work to run, we need the epoch
