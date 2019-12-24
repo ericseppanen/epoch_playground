@@ -19,7 +19,7 @@ If you want to see my actual code, you can find it here:
 
 Before I dive in, a few more notes:
 - This probably isn't a good place to start if you've never written _any_ rust code.
-- This is an example of doing fairly extreme things in search of the best performance.  If you don't need performance, just use a plain `Mutex` or `Arc`   unless you like doing things the hard way.
+- This is an example of doing fairly extreme things in search of the best performance.  If you don't need performance, just use a plain `Mutex` or `Arc` unless you like doing things the hard way.
 - This is a demonstration of how to build a low-level data structure, not an application.  I wouldn't expect to see `crossbeam::epoch` invoked directly by application code.  If you just want to _use_ concurrent data structures, my experience here might not be helpful.
 
 Also, thanks to Jon Gjengset for making advanced Rust videos.  They've helped me discover some really interesting parts of the Rust universe.
@@ -261,7 +261,7 @@ Note we have removed the `Canary` pointer from the main data structure, but we h
 
 ## Part 6: Deferred destruction
 
-When our data structure releases an item, we want it to be automatically destroyed once the global epoch has advanced.  This could be used by calling `defer()` and handing over the value to be destroyed, but that's hard to do because you'd have to extract the pointed from the `Shared` (which can't outlive the `Guard`).
+When our data structure releases an item, we want it to be automatically destroyed once the global epoch has advanced.  This could be used by calling `defer()` and handing over the value to be destroyed, but that's hard to do because you'd have to extract the pointer from the `Shared` (which can't outlive the `Guard`).
 
 Conveniently, there is a `defer_destroy()` function that does exactly what we want.
 
@@ -293,9 +293,9 @@ I don't think I understand the global epoch counter design well enough to really
 I wish there was a way to say "destroy all the remaining garbage from _this_ data structure," but the epoch counter, `Collector`, and deferred work are global, not per data structure.
 
 
-## Part 6: Randomized multithreaded workload
+## Part 7: Randomized multithreaded workload
 
-Now that we have what looks like a basic concurrent data structure, we should  add some threads to do random unpredictable things to it.  We'd like to have callers to `access()` and `replace()` bumping into each other constantly.
+Now that we have what looks like a basic concurrent data structure, we should add some threads to do random unpredictable things to it.  We'd like to have callers to `access()` and `replace()` bumping into each other constantly.
 
 First: spawn a bunch of threads.  We need to be a little careful with passing things to threads, since Rust can't reason about whether they might outlive the main thread.  So we'll put the `BirdCage` in an `Arc`, which will allow us to make thread-safe references.
 
